@@ -748,30 +748,30 @@ class RunSpanEnricher(SpanEnricher):
                     total_tokens = usage.total_tokens
 
             try:
-                span.set_attribute("gen_ai.run_id", id) if id is not None else None
-                span.set_attribute("gen_ai.run_thread_id", thread_id) if thread_id is not None else None
-                span.set_attribute("gen_ai.run_assistant_id", assistant_id) if assistant_id is not None else None
-                span.set_attribute("gen_ai.run_instructions", instructions) if instructions is not None else None
+                span.set_attribute("gen_ai.run.id", id) if id is not None else None
+                span.set_attribute("gen_ai.run.thread_id", thread_id) if thread_id is not None else None
+                span.set_attribute("gen_ai.run.assistant_id", assistant_id) if assistant_id is not None else None
+                span.set_attribute("gen_ai.run.instructions", instructions) if instructions is not None else None
                 span.set_attribute(
-                    "gen_ai.run_max_completion_tokens", max_completion_tokens
+                    "gen_ai.run.max_completion_tokens", max_completion_tokens
                 ) if max_completion_tokens is not None else None
                 span.set_attribute(
-                    "gen_ai.run_max_prompt_tokens", max_prompt_tokens
+                    "gen_ai.run.max_prompt_tokens", max_prompt_tokens
                 ) if max_prompt_tokens is not None else None
-                span.set_attribute("gen_ai.run_model", model) if model is not None else None
-                span.set_attribute("gen_ai.run_created_at", created_at) if created_at is not None else None
-                span.set_attribute("gen_ai.run_started_at", started_at) if started_at is not None else None
-                span.set_attribute("gen_ai.run_cancelled_at", cancelled_at) if cancelled_at is not None else None
-                span.set_attribute("gen_ai.run_expires_at", expires_at) if expires_at is not None else None
-                span.set_attribute("gen_ai.run_failed_at", failed_at) if failed_at is not None else None
-                span.set_attribute("gen_ai.run_completed_at", completed_at) if completed_at is not None else None
-                span.set_attribute("gen_ai.run_last_error", last_error) if last_error is not None else None
-                span.set_attribute("gen_ai.run_status", status) if status is not None else None
+                span.set_attribute("gen_ai.run.model", model) if model is not None else None
+                span.set_attribute("gen_ai.run.created_at", created_at) if created_at is not None else None
+                span.set_attribute("gen_ai.run.started_at", started_at) if started_at is not None else None
+                span.set_attribute("gen_ai.run.cancelled_at", cancelled_at) if cancelled_at is not None else None
+                span.set_attribute("gen_ai.run.expires_at", expires_at) if expires_at is not None else None
+                span.set_attribute("gen_ai.run.failed_at", failed_at) if failed_at is not None else None
+                span.set_attribute("gen_ai.run.completed_at", completed_at) if completed_at is not None else None
+                span.set_attribute("gen_ai.run.last_error", last_error) if last_error is not None else None
+                span.set_attribute("gen_ai.run.status", status) if status is not None else None
                 span.set_attribute(
-                    "gen_ai.run_completion_tokens", completion_tokens
+                    "gen_ai.run.completion_tokens", completion_tokens
                 ) if completion_tokens is not None else None
-                span.set_attribute("gen_ai.run_prompt_tokens", prompt_tokens) if prompt_tokens is not None else None
-                span.set_attribute("gen_ai.run_total_tokens", total_tokens) if total_tokens is not None else None
+                span.set_attribute("gen_ai.run.prompt_tokens", prompt_tokens) if prompt_tokens is not None else None
+                span.set_attribute("gen_ai.run.total_tokens", total_tokens) if total_tokens is not None else None
                 if function.__name__ == "create":
                     span.add_event("gen_ai.run.created", {"gen_ai.run.id": id})
                 elif function.__name__ == "update":
