@@ -685,38 +685,99 @@ class MessageSpanEnricher(SpanEnricher):
     def enrich(self, span, inputs, output, function, *args, **kwargs):
         token_collector.collect_openai_tokens(span, output)
         if not IS_LEGACY_OPENAI:
+            from openai.pagination import SyncCursorPage
             from openai.types.beta.threads.message import Message
 
-            if isinstance(output, (Message)):
-                id = output.id
-                thread_id = output.thread_id
-                role = output.role
-                assistant_id = output.assistant_id
-                run_id = output.run_id
-                created_at = output.created_at
-                completed_at = output.completed_at
-                content = output.content
-            try:
-                span.set_attribute("gen_ai.message.id", id) if id is not None else None
-                span.set_attribute("gen_ai.message.thread_id", thread_id) if thread_id is not None else None
-                span.set_attribute("gen_ai.message.role", role) if role is not None else None
-                span.set_attribute("gen_ai.message.assistant_id", assistant_id) if assistant_id is not None else None
-                span.set_attribute("gen_ai.message.run_id", run_id) if run_id is not None else None
-                span.set_attribute("gen_ai.message.created_at", created_at) if created_at is not None else None
-                span.set_attribute("gen_ai.message.completed_at", completed_at) if completed_at is not None else None
-                span.set_attribute("gen_ai.message.content", serialize_attribute(content))
-                if function.__name__ == "create":
-                    span.add_event("gen_ai.message.created", {"gen_ai.message.id": id})
-                elif function.__name__ == "update":
-                    span.add_event("gen_ai.message.updated", {"gen_ai.message.id": id})
-                elif function.__name__ == "delete":
-                    span.add_event("gen_ai.message.deleted", {"gen_ai.message.id": id})
-            except Exception as e:
-                logging.warning(f"Failed to enrich span with message: {e}")
+            if function.__name__ == "list":
+                if isinstance(output, SyncCursorPage[Message]):
+                    message_count = 0
+                    for message in output:
+                        message_count = message_count + 1
+                        self.enrich_with_message_as_event(span, message, message_count, function)
+                    span.set_attribute("gen_ai.message.count", message_count)
+            elif isinstance(output, (Message)):
+                message_count = 1
+                self.enrich_with_message_as_event(span, output, message_count, function)
+                span.set_attribute("gen_ai.message.count", message_count)
         super().enrich(span, inputs, output, function, args, kwargs)
+
+    def enrich_with_message_as_attribute(self, span, message, function):
+        id = message.id
+        thread_id = message.thread_id
+        role = message.role
+        assistant_id = message.assistant_id
+        run_id = message.run_id
+        created_at = message.created_at
+        completed_at = message.completed_at
+        content = message.content
+        try:
+            span.set_attribute("gen_ai.message.id", id) if id is not None else None
+            span.set_attribute("gen_ai.message.thread_id", thread_id) if thread_id is not None else None
+            span.set_attribute("gen_ai.message.role", role) if role is not None else None
+            span.set_attribute("gen_ai.message.assistant_id", assistant_id) if assistant_id is not None else None
+            span.set_attribute("gen_ai.message.run_id", run_id) if run_id is not None else None
+            span.set_attribute("gen_ai.message.created_at", created_at) if created_at is not None else None
+            span.set_attribute("gen_ai.message.completed_at", completed_at) if completed_at is not None else None
+            span.set_attribute("gen_ai.message.content", serialize_attribute(content))
+            if function.__name__ == "create":
+                span.add_event("gen_ai.message.created", {"gen_ai.message.id": id})
+            elif function.__name__ == "update":
+                span.add_event("gen_ai.message.updated", {"gen_ai.message.id": id})
+            elif function.__name__ == "delete":
+                span.add_event("gen_ai.message.deleted", {"gen_ai.message.id": id})
+            elif function.__name__ == "list":
+                span.add_event("gen_ai.message.list", {"gen_ai.message.id": id})
+        except Exception as e:
+            logging.warning(f"Failed to enrich span with message: {e}")
+
+    def enrich_with_message_as_event(self, span, message, message_number, function):
+        id = message.id
+        thread_id = message.thread_id
+        role = message.role
+        assistant_id = message.assistant_id
+        run_id = message.run_id
+        created_at = message.created_at
+        completed_at = message.completed_at
+        content = message.content
+        try:
+            event_name = ""
+            if function.__name__ == "create":
+                event_name = "gen_ai.message.created"
+            elif function.__name__ == "update":
+                event_name = "gen_ai.message.updated"
+            elif function.__name__ == "delete":
+                event_name = "gen_ai.message.deleted"
+            elif function.__name__ == "list":
+                event_name = "gen_ai.message.list" + "." + str(message_number)
+            span.add_event(
+                event_name,
+                {
+                    "gen_ai.message.id": id,
+                    "gen_ai.message.thread_id": thread_id,
+                    "gen_ai.message.role": role,
+                    **({"gen_ai.message.assistant_id": assistant_id} if assistant_id is not None else {}),
+                    **({"gen_ai.message.run_id": run_id} if run_id is not None else {}),
+                    "gen_ai.message.created_at": created_at,
+                    **({"gen_ai.message.completed_at": completed_at} if completed_at is not None else {}),
+                    "gen_ai.message.content": serialize_attribute(content),
+                },
+            )
+        except Exception as e:
+            logging.warning(f"Failed to enrich span with message: {e}")
 
 
 class RunSpanEnricher(SpanEnricher):
+    completed_run_ids = []
+
+    def __init__(self):
+        super().__init__()
+
+    @staticmethod
+    def get_and_clear_completed_run_ids():
+        ids = RunSpanEnricher.completed_run_ids
+        RunSpanEnricher.completed_run_ids = []
+        return ids
+
     def enrich(self, span, inputs, output, function, *args, **kwargs):
         token_collector.collect_openai_tokens(span, output)
         if not IS_LEGACY_OPENAI:
@@ -778,9 +839,114 @@ class RunSpanEnricher(SpanEnricher):
                     span.add_event("gen_ai.run.updated", {"gen_ai.run.id": id})
                 elif function.__name__ == "retrieve":
                     span.add_event("gen_ai.run.retrieved", {"gen_ai.run.id": id})
+                    if status == "completed":
+                        RunSpanEnricher.completed_run_ids.append(id)
             except Exception as e:
                 logging.warning(f"Failed to enrich span with message: {e}")
         super().enrich(span, inputs, output, function, args, kwargs)
+
+
+class StepSpanEnricher(SpanEnricher):
+    def enrich(self, span, inputs, output, function, *args, **kwargs):
+        token_collector.collect_openai_tokens(span, output)
+        if not IS_LEGACY_OPENAI:
+            from openai.pagination import SyncCursorPage
+            from openai.types.beta.threads.runs import RunStep
+
+            if function.__name__ == "list":
+                if isinstance(output, SyncCursorPage[RunStep]):
+                    step_count = 0
+                    for step in output:
+                        step_count = step_count + 1
+                        self.enrich_with_step_as_event(span, step, step_count, function)
+                    span.set_attribute("gen_ai.step.count", step_count)
+        super().enrich(span, inputs, output, function, args, kwargs)
+
+    def enrich_with_step_as_event(self, span, step, step_number, function):
+        id = step.id
+        assistant_id = step.assistant_id
+        cancelled_at = step.cancelled_at
+        completed_at = step.completed_at
+        created_at = step.created_at
+        expired_at = step.expired_at
+        failed_at = step.failed_at
+        last_error = step.last_error
+        run_id = step.run_id
+        status = step.status
+        thread_id = step.thread_id
+        type = step.type
+        completion_tokens = None
+        prompt_tokens = None
+        total_tokens = None
+        usage = step.usage
+        if usage is not None:
+            completion_tokens = usage.completion_tokens
+            prompt_tokens = usage.prompt_tokens
+            total_tokens = usage.total_tokens
+        type = step.type
+        tool_call_count = 0
+        if type == "tool_calls":
+            from openai.types.beta.threads.runs.tool_calls_step_details import ToolCallsStepDetails
+
+            step_details = step.step_details
+            if isinstance(step_details, ToolCallsStepDetails):
+                tool_calls = step_details.tool_calls
+                tool_call_count = len(tool_calls)
+        try:
+            event_name = "gen_ai.step.list" + "." + str(step_number)
+            attributes = {
+                "gen_ai.step.id": id,
+                "gen_ai.step.assistant_id": assistant_id,
+                **({"gen_ai.step.cancelled_at": cancelled_at} if cancelled_at is not None else {}),
+                **({"gen_ai.step.completed_at": completed_at} if completed_at is not None else {}),
+                "gen_ai.step.created_at": created_at,
+                **({"gen_ai.step.expired_at": expired_at} if expired_at is not None else {}),
+                **({"gen_ai.step.failed_at": failed_at} if failed_at is not None else {}),
+                **({"gen_ai.step.last_error": last_error} if last_error is not None else {}),
+                "gen_ai.step.run_id": run_id,
+                "gen_ai.step.status": status,
+                "gen_ai.step.thread_id": thread_id,
+                "gen_ai.step.type": type,
+                **({"gen_ai.step.completion_tokens": completion_tokens} if completion_tokens is not None else {}),
+                **({"gen_ai.step.prompt_tokens": prompt_tokens} if prompt_tokens is not None else {}),
+                **({"gen_ai.step.total_tokens": total_tokens} if total_tokens is not None else {}),
+                "gen_ai.step.tool_call_count": tool_call_count,
+            }
+
+            if tool_call_count > 0:
+                for i, tool_call in enumerate(tool_calls, start=1):
+                    attributes[f"gen_ai.tool_call.id.{i}"] = tool_call.id
+
+            span.add_event(event_name, attributes)
+
+            if tool_call_count > 0:
+                from openai.types.beta.threads.runs.tool_call import (
+                    CodeInterpreterToolCall,
+                    FileSearchToolCall,
+                    FunctionToolCall,
+                )
+
+                for tool_call in tool_calls:
+                    event_name = "gen_ai.tool_call.list." + tool_call.id
+                    if isinstance(tool_call, CodeInterpreterToolCall):
+                        pass
+                    elif isinstance(tool_call, FileSearchToolCall):
+                        pass
+                    elif isinstance(tool_call, FunctionToolCall):
+                        attributes = {
+                            "gen_ai.tool_call.id": tool_call.id,
+                            "gen_ai.tool_call.type": "function_tool_call",
+                            "gen_ai.function_tool_call.name": tool_call.function.name,
+                            "gen_ai.function_tool_call.arguments": tool_call.function.arguments,
+                            **(
+                                {"gen_ai.function_tool_call.output": tool_call.function.output}
+                                if tool_call.function.output is not None
+                                else {}
+                            ),
+                        }
+                    span.add_event(event_name, attributes)
+        except Exception as e:
+            logging.warning(f"Failed to enrich span with step: {e}")
 
 
 SpanEnricherManager.register(TraceType.LLM, LLMSpanEnricher())
@@ -789,3 +955,4 @@ SpanEnricherManager.register(TraceType.ASSISTANT, AssistantSpanEnricher())
 SpanEnricherManager.register(TraceType.THREAD, ThreadSpanEnricher())
 SpanEnricherManager.register(TraceType.MESSAGE, MessageSpanEnricher())
 SpanEnricherManager.register(TraceType.RUN, RunSpanEnricher())
+SpanEnricherManager.register(TraceType.STEP, StepSpanEnricher())
